@@ -1,0 +1,947 @@
+
+ Detecting Fraud in Financial Services.ipynb_
+ 
+[1]
+0s
+# =============================================================================
+# Project Setup: Initializing Environment and Exploring Dataset Directory
+# Author: Anumula Deepak Maruthi
+# Description: Custom environment setup for a financial fraud detection project
+# =============================================================================
+
+# Essential libraries for data handling and numerical operations
+import numpy as np       # For numerical computations
+import pandas as pd      # For data processing and manipulation
+
+# Operating system utilities for file and directory management
+import os
+
+# Displaying all files present within the dataset directory
+# (Directory path may vary depending on platform/environment)
+dataset_path = '/kaggle/input'
+
+print("Scanning dataset directory...\n")
+for root_dir, _, file_list in os.walk(dataset_path):
+    for file_name in file_list:
+        print(f"Found: {os.path.join(root_dir, file_name)}")
+
+# -------------------------------------------------------------------
+# Notes:
+# - You can use '/kaggle/working/' to store output files up to 20GB.
+# - Temporary files can be stored in '/kaggle/temp/' but will be deleted once session ends.
+# -------------------------------------------------------------------
+
+ Scanning dataset directory...
+
+ 
+[2]
+8s
+# =============================================================================
+# Module Imports for Modeling, Evaluation, and Visualization
+# Author: Anumula Deepak Maruthi
+# =============================================================================
+
+# Scikit-learn: For model evaluation, cross-validation, and parameter tuning
+from sklearn.model_selection import (
+    train_test_split,
+    StratifiedKFold,
+    RepeatedStratifiedKFold,
+    cross_val_score,
+    GridSearchCV
+)
+from sklearn.metrics import classification_report, confusion_matrix
+
+# Visualization libraries
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+# Deep Learning library
+import tensorflow as tf
+
+# Utilities for randomness and progress monitoring
+import random
+from statistics import mean
+from tqdm.auto import tqdm  # Using auto for better compatibility in notebooks and scripts
+
+# Suppress TensorFlow warnings for cleaner output (optional)
+tf.get_logger().setLevel('ERROR')
+
+ 
+[3]
+1s
+# =============================================================================
+# Handling Class Imbalance with SMOTE (Synthetic Minority Oversampling Technique)
+# =============================================================================
+
+# Imbalanced-learn library for advanced sampling techniques
+import imblearn
+from imblearn.over_sampling import SMOTE
+
+# Utility for summarizing class distributions
+from collections import Counter
+
+# Display installed imbalanced-learn version (useful for reproducibility)
+print(f"[INFO] imbalanced-learn version: {imblearn.__version__}")
+
+ [INFO] imbalanced-learn version: 0.13.0
+ 
+[4]
+0s
+# =============================================================================
+# Importing Classification Models
+# =============================================================================
+
+# K-Nearest Neighbors: A distance-based classification algorithm
+from sklearn.neighbors import KNeighborsClassifier
+
+# XGBoost: An efficient and scalable gradient boosting framework
+from xgboost import XGBClassifier
+
+ 
+[5]
+1s
+# =============================================================================
+# Load Transaction Data from CSV File
+# =============================================================================
+
+# Define the path to the dataset (update if using a different environment)
+data_file_path = '/content/PS_20174392719_1491204439457_log.csv'
+
+# Read the dataset into a pandas DataFrame
+df = pd.read_csv(data_file_path)
+
+# Confirm successful load by showing basic info (optional)
+print(f"[INFO] Data loaded successfully with {df.shape[0]} records and {df.shape[1]} features.")
+
+ [INFO] Data loaded successfully with 682239 records and 11 features.
+ 
+[6]
+0s
+# =============================================================================
+# Filter Dataset for DEBIT Transactions Only
+# =============================================================================
+
+# Create a separate DataFrame containing only DEBIT transaction records
+debit_transactions = df.query("type == 'DEBIT'").copy()
+
+# Preview the filtered data (optional)
+print(f"[INFO] Extracted {debit_transactions.shape[0]} DEBIT transactions.")
+debit_transactions.head()
+
+ 
+Next steps:
+ 
+[7]
+0s
+# =============================================================================
+# Analyze Distribution of Fraudulent vs. Non-Fraudulent Transactions
+# =============================================================================
+
+# Count occurrences of each class in the 'isFraud' column
+fraud_counts = df['isFraud'].value_counts().sort_index()
+
+# Display the class distribution with context
+print("[INFO] Transaction classification breakdown:")
+for label, count in fraud_counts.items():
+    status = "Fraudulent" if label == 1 else "Non-Fraudulent"
+    print(f" - {status} transactions: {count}")
+
+ [INFO] Transaction classification breakdown:
+ - Non-Fraudulent transactions: 681831
+ - Fraudulent transactions: 408
+ 
+[8]
+0s
+# =============================================================================
+# Analyze Naming Pattern in Originator Accounts
+# =============================================================================
+
+# Check how many originator names do NOT begin with the letter 'M'
+non_m_prefix_count = df['nameOrig'].apply(lambda x: not str(x).startswith('M')).sum()
+
+# Display the result with explanation
+print(f"[INFO] Number of originator accounts not starting with 'M': {non_m_prefix_count}")
+
+ [INFO] Number of originator accounts not starting with 'M': 682239
+ 
+[9]
+0s
+# =============================================================================
+# Count and Display Fraud vs. Non-Fraud Transaction Totals
+# =============================================================================
+
+# Separate counts for fraudulent and non-fraudulent transactions
+fraud_total = (df['isFraud'] == 1).sum()
+non_fraud_total = (df['isFraud'] == 0).sum()
+
+# Print summary with context
+print(f"[INFO] Total fraudulent transactions      : {fraud_total}")
+print(f"[INFO] Total non-fraudulent transactions  : {non_fraud_total}")
+
+ [INFO] Total fraudulent transactions      : 408
+[INFO] Total non-fraudulent transactions  : 681831
+ 
+[11]
+0s
+# =============================================================================# Dataset Structure Overview# =============================================================================# Display summary of dataset structure including column types and non-null countsprint("[INFO] Dataset Overview:")print("-" * 50)df_summary = df.info()
+
+ [INFO] Dataset Overview:
+--------------------------------------------------
+<class 'pandas.core.frame.DataFrame'>
+RangeIndex: 682239 entries, 0 to 682238
+Data columns (total 11 columns):
+ #   Column          Non-Null Count   Dtype  
+---  ------          --------------   -----  
+ 0   step            682239 non-null  int64  
+ 1   type            682239 non-null  object 
+ 2   amount          682239 non-null  float64
+ 3   nameOrig        682239 non-null  object 
+ 4   oldbalanceOrg   682239 non-null  float64
+ 5   newbalanceOrig  682239 non-null  float64
+ 6   nameDest        682239 non-null  object 
+ 7   oldbalanceDest  682239 non-null  float64
+ 8   newbalanceDest  682239 non-null  float64
+ 9   isFraud         682239 non-null  int64  
+ 10  isFlaggedFraud  682239 non-null  int64  
+dtypes: float64(5), int64(3), object(3)
+memory usage: 57.3+ MB
+Preprocessing
+
+ 
+[12]
+0s
+# =============================================================================
+# Count Unique Values Across All Columns
+# =============================================================================
+
+# Create a dictionary to store the number of unique entries per feature
+unique_counts = {col: df[col].nunique() for col in df.columns}
+
+# Display the unique value count for each column
+print("[INFO] Unique value count by column:")
+for col, count in unique_counts.items():
+    print(f" - {col}: {count}")
+
+ [INFO] Unique value count by column:
+ - step: 36
+ - type: 5
+ - amount: 665967
+ - nameOrig: 682138
+ - oldbalanceOrg: 295193
+ - newbalanceOrig: 306954
+ - nameDest: 293993
+ - oldbalanceDest: 394582
+ - newbalanceDest: 252369
+ - isFraud: 2
+ - isFlaggedFraud: 1
+ 
+[13]
+0s
+# =============================================================================
+# Identify Distinct Transaction Types
+# =============================================================================
+
+# Extract and display all unique transaction types present in the dataset
+transaction_types = df['type'].dropna().unique()
+
+print("[INFO] Available transaction types in dataset:")
+for tx_type in transaction_types:
+    print(f" - {tx_type}")
+
+ [INFO] Available transaction types in dataset:
+ - PAYMENT
+ - TRANSFER
+ - CASH_OUT
+ - DEBIT
+ - CASH_IN
+ 
+[14]
+0s
+pd.get_dummies(df['type'],prefix='tp')
+
+ 
+ 
+[15]
+0s
+def onehot(df, column, prefix):
+    df = df.copy()
+    dummies = pd.get_dummies(df[column],prefix=prefix)
+    df = pd.concat([df,dummies], axis=1)
+    df = df.drop(column, axis=1)
+    return df
+ 
+[16]
+0s
+def preprocessing(df):
+    df = df.copy()
+    
+    df = df.drop(['step', 'isFlaggedFraud'],axis=1)
+    
+    #one-hot encode on type column
+    df = onehot(df, column='type', prefix='tp')
+    
+    y = df['isFraud'].copy()
+    X = df.drop('isFraud', axis=1).copy()
+    
+    # Train-Test Split
+    #random state shows that the split shuffles the data always in the same way so you'll get the same data after each run
+    X_train, X_test, y_train, y_test = train_test_split(X, y, train_size=0.7, random_state=123)
+    
+    return X_train, X_test, y_train, y_test
+ 
+[17]
+0s
+X_train, X_test, y_train, y_test = preprocessing(df)
+ 
+[18]
+0s
+print(len(X_train), len(X_test))
+ 477567 204672
+ 
+[19]
+0s
+X_train
+ 
+ 
+[20]
+0s
+counter = Counter(y_train)
+print(counter)
+ Counter({0: 477273, 1: 294})
+ 
+[21]
+0s
+categ_x_train = X_train[['nameOrig','nameDest']].copy()
+X_train = X_train.drop(['nameOrig','nameDest'], axis=1)
+
+categ_x_test = X_test[['nameOrig','nameDest']].copy()
+X_test = X_test.drop(['nameOrig','nameDest'], axis=1)
+
+ 
+[22]
+0s
+X_test
+ 
+ 
+[23]
+1s
+oversample = SMOTE()
+X_train, y_train = oversample.fit_resample(X_train, y_train)
+X_train = X_train.sample(frac=1.0,random_state=123).reset_index(drop=True)
+y_train = y_train.sample(frac=1.0,random_state=123).reset_index(drop=True)
+counter = Counter(y_train)
+print(counter)
+ Counter({0: 477273, 1: 477273})
+ 
+[24]
+23s
+# KNN
+knn = KNeighborsClassifier(n_neighbors=10)
+model=knn.fit(X_train, y_train)
+pred = model.predict(X_test)
+pred
+
+ array([0, 0, 0, ..., 0, 0, 0])
+ 
+[25]
+0s
+# XG Boost
+model = XGBClassifier(n_jobs=-1)
+
+
+# # summarize performance
+# print('Mean ROC AUC: %.5f' % mean(scores))
+ 
+[26]
+0s
+# define evaluation procedure
+cv = RepeatedStratifiedKFold(n_splits=10, n_repeats=3, random_state=1)
+cv
+ RepeatedStratifiedKFold(n_repeats=3, n_splits=10, random_state=1)
+ 
+[27]
+5m
+# # evaluate model
+for i in tqdm(range(1)):
+    scores = cross_val_score(model, X_train, y_train, scoring='f1', cv=cv, n_jobs=-1)
+ 
+ 
+[28]
+0s
+# summarize performance
+print('Mean F1: %.5f' % mean(scores))
+ Mean F1: 0.99506
+ 
+[29]
+10s
+model.fit(X_train, y_train)
+ 
+ 
+[30]
+0s
+import joblib
+
+
+filename = 'finalized_model.sav'
+
+joblib.dump(model, filename)
+
+
+# load the model from disk
+ ['finalized_model.sav']
+ 
+[31]
+0s
+loaded_model = joblib.load(filename)
+
+result = loaded_model.predict(X_test)
+
+print(result)
+ [0 0 0 ... 0 0 0]
+ 
+[32]
+0s
+y_pred = model.predict(X_test)
+
+ 
+[33]
+0s
+cm = confusion_matrix(y_test,y_pred)
+clr = classification_report(y_test, y_pred, target_names=['Not Fraud','Fraud'])
+cm
+ array([[203098,   1460],
+       [    15,     99]])
+ 
+[34]
+0s
+plt.figure(figsize=(8, 8))
+sns.heatmap(cm, annot=True, vmin=0, fmt='g', cbar=False, cmap='Blues')
+plt.xticks(np.arange(2)+0.5, ['Not Fraud','Fraud'])
+plt.yticks(np.arange(2)+0.5, ['Not Fraud','Fraud'])
+plt.xlabel('Predicted')
+plt.ylabel('Actual')
+plt.title('Confusion Matrix')
+plt.show()
+ 
+ 
+[35]
+0s
+print('Classification Report:\n', clr)
+ Classification Report:
+               precision    recall  f1-score   support
+
+   Not Fraud       1.00      0.99      1.00    204558
+       Fraud       0.06      0.87      0.12       114
+
+    accuracy                           0.99    204672
+   macro avg       0.53      0.93      0.56    204672
+weighted avg       1.00      0.99      1.00    204672
+
+ 
+[36]
+21s
+! git clone https://github.com/gradio-app/gradio.git
+    
+ Cloning into 'gradio'...
+remote: Enumerating objects: 130343, done.
+remote: Counting objects: 100% (992/992), done.
+remote: Compressing objects: 100% (597/597), done.
+remote: Total 130343 (delta 747), reused 403 (delta 395), pack-reused 129351 (from 5)
+Receiving objects: 100% (130343/130343), 292.71 MiB | 24.72 MiB/s, done.
+Resolving deltas: 100% (93224/93224), done.
+Updating files: 100% (3094/3094), done.
+ 
+[37]
+0s
+! ls gradio/
+ build_pypi.sh	    js			 renovate.json
+CHANGELOG.md	    LICENSE		 requirements-mcp.txt
+CITATION.cff	    package.json	 requirements-oauth.txt
+client		    patches		 requirements.txt
+CODE_OF_CONDUCT.md  pnpm-lock.yaml	 scripts
+CONTRIBUTING.md     pnpm-workspace.yaml  SECURITY.md
+demo		    pyproject.toml	 style.md
+globals.d.ts	    readme_files	 svelte.config.js
+gradio		    README.md		 test
+guides		    readme_template.md	 testing-guidelines
+home		    render_readme.py	 tsconfig.json
+ 
+[38]
+0s
+! python gradio/setup.py install
+ python3: can't open file '/content/gradio/setup.py': [Errno 2] No such file or directory
+ 
+[39]
+10s
+! pip install gradio
+ Requirement already satisfied: gradio in /usr/local/lib/python3.11/dist-packages (5.38.0)
+Requirement already satisfied: aiofiles<25.0,>=22.0 in /usr/local/lib/python3.11/dist-packages (from gradio) (24.1.0)
+Requirement already satisfied: anyio<5.0,>=3.0 in /usr/local/lib/python3.11/dist-packages (from gradio) (4.9.0)
+Requirement already satisfied: brotli>=1.1.0 in /usr/local/lib/python3.11/dist-packages (from gradio) (1.1.0)
+Requirement already satisfied: fastapi<1.0,>=0.115.2 in /usr/local/lib/python3.11/dist-packages (from gradio) (0.116.1)
+Requirement already satisfied: ffmpy in /usr/local/lib/python3.11/dist-packages (from gradio) (0.6.0)
+Requirement already satisfied: gradio-client==1.11.0 in /usr/local/lib/python3.11/dist-packages (from gradio) (1.11.0)
+Requirement already satisfied: groovy~=0.1 in /usr/local/lib/python3.11/dist-packages (from gradio) (0.1.2)
+Requirement already satisfied: httpx<1.0,>=0.24.1 in /usr/local/lib/python3.11/dist-packages (from gradio) (0.28.1)
+Requirement already satisfied: huggingface-hub>=0.28.1 in /usr/local/lib/python3.11/dist-packages (from gradio) (0.33.4)
+Requirement already satisfied: jinja2<4.0 in /usr/local/lib/python3.11/dist-packages (from gradio) (3.1.6)
+Requirement already satisfied: markupsafe<4.0,>=2.0 in /usr/local/lib/python3.11/dist-packages (from gradio) (3.0.2)
+Requirement already satisfied: numpy<3.0,>=1.0 in /usr/local/lib/python3.11/dist-packages (from gradio) (2.0.2)
+Requirement already satisfied: orjson~=3.0 in /usr/local/lib/python3.11/dist-packages (from gradio) (3.11.0)
+Requirement already satisfied: packaging in /usr/local/lib/python3.11/dist-packages (from gradio) (25.0)
+Requirement already satisfied: pandas<3.0,>=1.0 in /usr/local/lib/python3.11/dist-packages (from gradio) (2.2.2)
+Requirement already satisfied: pillow<12.0,>=8.0 in /usr/local/lib/python3.11/dist-packages (from gradio) (11.3.0)
+Requirement already satisfied: pydantic<2.12,>=2.0 in /usr/local/lib/python3.11/dist-packages (from gradio) (2.11.7)
+Requirement already satisfied: pydub in /usr/local/lib/python3.11/dist-packages (from gradio) (0.25.1)
+Requirement already satisfied: python-multipart>=0.0.18 in /usr/local/lib/python3.11/dist-packages (from gradio) (0.0.20)
+Requirement already satisfied: pyyaml<7.0,>=5.0 in /usr/local/lib/python3.11/dist-packages (from gradio) (6.0.2)
+Requirement already satisfied: ruff>=0.9.3 in /usr/local/lib/python3.11/dist-packages (from gradio) (0.12.4)
+Requirement already satisfied: safehttpx<0.2.0,>=0.1.6 in /usr/local/lib/python3.11/dist-packages (from gradio) (0.1.6)
+Requirement already satisfied: semantic-version~=2.0 in /usr/local/lib/python3.11/dist-packages (from gradio) (2.10.0)
+Requirement already satisfied: starlette<1.0,>=0.40.0 in /usr/local/lib/python3.11/dist-packages (from gradio) (0.47.2)
+Requirement already satisfied: tomlkit<0.14.0,>=0.12.0 in /usr/local/lib/python3.11/dist-packages (from gradio) (0.13.3)
+Requirement already satisfied: typer<1.0,>=0.12 in /usr/local/lib/python3.11/dist-packages (from gradio) (0.16.0)
+Requirement already satisfied: typing-extensions~=4.0 in /usr/local/lib/python3.11/dist-packages (from gradio) (4.14.1)
+Requirement already satisfied: uvicorn>=0.14.0 in /usr/local/lib/python3.11/dist-packages (from gradio) (0.35.0)
+Requirement already satisfied: fsspec in /usr/local/lib/python3.11/dist-packages (from gradio-client==1.11.0->gradio) (2025.7.0)
+Requirement already satisfied: websockets<16.0,>=10.0 in /usr/local/lib/python3.11/dist-packages (from gradio-client==1.11.0->gradio) (15.0.1)
+Requirement already satisfied: idna>=2.8 in /usr/local/lib/python3.11/dist-packages (from anyio<5.0,>=3.0->gradio) (3.10)
+Requirement already satisfied: sniffio>=1.1 in /usr/local/lib/python3.11/dist-packages (from anyio<5.0,>=3.0->gradio) (1.3.1)
+Requirement already satisfied: certifi in /usr/local/lib/python3.11/dist-packages (from httpx<1.0,>=0.24.1->gradio) (2025.7.14)
+Requirement already satisfied: httpcore==1.* in /usr/local/lib/python3.11/dist-packages (from httpx<1.0,>=0.24.1->gradio) (1.0.9)
+Requirement already satisfied: h11>=0.16 in /usr/local/lib/python3.11/dist-packages (from httpcore==1.*->httpx<1.0,>=0.24.1->gradio) (0.16.0)
+Requirement already satisfied: filelock in /usr/local/lib/python3.11/dist-packages (from huggingface-hub>=0.28.1->gradio) (3.18.0)
+Requirement already satisfied: requests in /usr/local/lib/python3.11/dist-packages (from huggingface-hub>=0.28.1->gradio) (2.32.3)
+Requirement already satisfied: tqdm>=4.42.1 in /usr/local/lib/python3.11/dist-packages (from huggingface-hub>=0.28.1->gradio) (4.67.1)
+Requirement already satisfied: hf-xet<2.0.0,>=1.1.2 in /usr/local/lib/python3.11/dist-packages (from huggingface-hub>=0.28.1->gradio) (1.1.5)
+Requirement already satisfied: python-dateutil>=2.8.2 in /usr/local/lib/python3.11/dist-packages (from pandas<3.0,>=1.0->gradio) (2.9.0.post0)
+Requirement already satisfied: pytz>=2020.1 in /usr/local/lib/python3.11/dist-packages (from pandas<3.0,>=1.0->gradio) (2025.2)
+Requirement already satisfied: tzdata>=2022.7 in /usr/local/lib/python3.11/dist-packages (from pandas<3.0,>=1.0->gradio) (2025.2)
+Requirement already satisfied: annotated-types>=0.6.0 in /usr/local/lib/python3.11/dist-packages (from pydantic<2.12,>=2.0->gradio) (0.7.0)
+Requirement already satisfied: pydantic-core==2.33.2 in /usr/local/lib/python3.11/dist-packages (from pydantic<2.12,>=2.0->gradio) (2.33.2)
+Requirement already satisfied: typing-inspection>=0.4.0 in /usr/local/lib/python3.11/dist-packages (from pydantic<2.12,>=2.0->gradio) (0.4.1)
+Requirement already satisfied: click>=8.0.0 in /usr/local/lib/python3.11/dist-packages (from typer<1.0,>=0.12->gradio) (8.2.1)
+Requirement already satisfied: shellingham>=1.3.0 in /usr/local/lib/python3.11/dist-packages (from typer<1.0,>=0.12->gradio) (1.5.4)
+Requirement already satisfied: rich>=10.11.0 in /usr/local/lib/python3.11/dist-packages (from typer<1.0,>=0.12->gradio) (13.9.4)
+Requirement already satisfied: six>=1.5 in /usr/local/lib/python3.11/dist-packages (from python-dateutil>=2.8.2->pandas<3.0,>=1.0->gradio) (1.17.0)
+Requirement already satisfied: markdown-it-py>=2.2.0 in /usr/local/lib/python3.11/dist-packages (from rich>=10.11.0->typer<1.0,>=0.12->gradio) (3.0.0)
+Requirement already satisfied: pygments<3.0.0,>=2.13.0 in /usr/local/lib/python3.11/dist-packages (from rich>=10.11.0->typer<1.0,>=0.12->gradio) (2.19.2)
+Requirement already satisfied: charset-normalizer<4,>=2 in /usr/local/lib/python3.11/dist-packages (from requests->huggingface-hub>=0.28.1->gradio) (3.4.2)
+Requirement already satisfied: urllib3<3,>=1.21.1 in /usr/local/lib/python3.11/dist-packages (from requests->huggingface-hub>=0.28.1->gradio) (2.5.0)
+Requirement already satisfied: mdurl~=0.1 in /usr/local/lib/python3.11/dist-packages (from markdown-it-py>=2.2.0->rich>=10.11.0->typer<1.0,>=0.12->gradio) (0.1.2)
+ 
+[40]
+0s
+! python gradio/setup.py install
+ python3: can't open file '/content/gradio/setup.py': [Errno 2] No such file or directory
+ 
+[41]
+6s
+import gradio as gr
+ 
+[42]
+0s
+def dataframe(file_obj):
+    df = pd.read_csv(file_obj.name)
+    df = onehot(df, column='type', prefix='tp')
+    df = df.drop(['nameOrig','nameDest','step'], axis=1)
+    print(df.shape)
+    y_pred = model.predict(df)
+    
+    pred_df = pd.DataFrame(y_pred, columns = ['isFraud'])
+    print(type(pred_df))
+    print(pred_df.shape)
+#     clr = classification_report(y_test, y_pred, target_names=['Not Fraud','Fraud'])
+#     return 'Classification Report:\n'+ clr
+    return pred_df
+
+ 
+[46]
+3s
+# =============================================================================
+# Gradio Interface for Batch Fraud Prediction from CSV File
+# =============================================================================
+
+import gradio as gr
+
+# Define file input: accept only a single CSV file
+csv_input = gr.File(label="Upload Transaction CSV", file_types=[".csv"])
+
+# Define DataFrame output: display prediction results
+prediction_output = gr.Dataframe(label="Predicted Outcomes")
+
+# Create Gradio Interface
+fraud_detection_ui = gr.Interface(
+    fn=dataframe,  # Make sure to define this function separately
+    inputs=csv_input,
+    outputs=prediction_output,
+    title="📊 Mobile Money Fraud Detection System",
+    description="Upload a CSV file with transaction records to detect potential fraud.",
+    theme="soft"  # Use 'soft', 'default', or custom themes; 'dark-peach' may be unsupported
+)
+
+# Launch the interface
+fraud_detection_ui.launch()
+
+ 
+ 
+[48]
+0s
+fraud_detection_ui.launch(share=True)
+
+ 
+ 
+[49]
+0s
+y = np.array([0,1])
+y[0]
+ np.int64(0)
+ 
+[50]
+0s
+# =============================================================================
+# Single Transaction Fraud Prediction Function
+# =============================================================================
+
+def predict_transaction(trans_type, amount, old_balance_origin):
+    """
+    Predicts the likelihood of a single transaction being fraudulent
+    based on transaction type, amount, and originator's old balance.
+    """
+
+    # Dynamically compute new originator balance based on transaction type
+    balance_update_logic = {
+        "PAYMENT": old_balance_origin - amount,
+        "TRANSFER": old_balance_origin - amount,
+        "CASH_OUT": old_balance_origin - amount,
+        "CASH_IN":  old_balance_origin + amount,
+        "DEBIT":    old_balance_origin - amount,
+    }
+    new_balance_origin = balance_update_logic.get(trans_type, 0.0)
+
+    # Construct feature dictionary for the model
+    sample = {
+        'type': trans_type,
+        'amount': amount,
+        'oldbalanceOrg': old_balance_origin,
+        'newbalanceOrig': new_balance_origin,
+        'oldbalanceDest': 0.0,
+        'newbalanceDest': 0.0,
+        'tp_PAYMENT': 0,
+        'tp_TRANSFER': 0,
+        'tp_CASH_OUT': 0,
+        'tp_CASH_IN': 0,
+        'tp_DEBIT': 0
+    }
+
+    # Convert to DataFrame
+    input_df = pd.DataFrame(sample, index=[0])
+
+    # Remove the one-hot flag for the selected type (to be re-added properly)
+    type_column_to_drop = f"tp_{trans_type}"
+    if type_column_to_drop in input_df.columns:
+        input_df = input_df.drop(columns=type_column_to_drop)
+
+    # Apply one-hot encoding for 'type'
+    input_df = onehot(input_df, column='type', prefix='tp')
+
+    # Log processed input (for debugging)
+    print("[DEBUG] Processed Input for Model:")
+    print(input_df)
+
+    # Run prediction using preloaded model
+    probabilities = model.predict_proba(input_df)[0].tolist()
+
+    # Create named probability output
+    prediction = {
+        "Not Fraud": probabilities[0],
+        "Fraud": probabilities[1]
+    }
+
+    return prediction, new_balance_origin
+
+ 
+[51]
+0s
+# =============================================================================
+# Gradio Interface for Real-Time Fraud Prediction (Single Transaction)
+# =============================================================================
+
+import gradio as gr
+
+# Input components
+transaction_type_input = gr.Dropdown(
+    choices=['PAYMENT', 'TRANSFER', 'CASH_OUT', 'CASH_IN', 'DEBIT'],
+    label="Transaction Type",
+    value=None,
+    interactive=True
+)
+
+transaction_amount_input = gr.Number(
+    label="Transaction Amount",
+    value=None
+)
+
+origin_balance_input = gr.Number(
+    label="Originator's Old Balance",
+    value=100000
+)
+
+# Output components
+fraud_label_output = gr.Label(
+    label="Fraud Prediction"
+)
+
+predicted_new_balance_output = gr.Textbox(
+    label="Predicted New Balance (Originator)"
+)
+
+# Define interface
+per_transaction_interface = gr.Interface(
+    fn=predict_transaction,  # This should match your function name
+    inputs=[transaction_type_input, transaction_amount_input, origin_balance_input],
+    outputs=[fraud_label_output, predicted_new_balance_output],
+    title="💸 Oddity: Intelligent Fraud Detection for Mobile Transactions",
+    description=(
+        "Mobile Money Transactions (MMTs) have revolutionized financial access, yet remain vulnerable to fraud. "
+        "This tool predicts the likelihood of a transaction being fraudulent based on key parameters. "
+        "Empowering users with AI-driven insights helps build a safer, more inclusive FinTech ecosystem."
+    ),
+    theme="soft"  # 'dark-peach' is not a supported Gradio v4+ theme. Use 'soft', 'default', or omit.
+)
+
+ 
+[53]
+0s
+per_transaction_interface.launch(share=True)
+
+ 
+Step-by-Step: Deploy Gradio App Permanently to Hugging Face Spaces
+
+ 
+[54]
+7s
+pip install gradio huggingface_hub
+
+ Requirement already satisfied: gradio in /usr/local/lib/python3.11/dist-packages (5.38.0)
+Requirement already satisfied: huggingface_hub in /usr/local/lib/python3.11/dist-packages (0.33.4)
+Requirement already satisfied: aiofiles<25.0,>=22.0 in /usr/local/lib/python3.11/dist-packages (from gradio) (24.1.0)
+Requirement already satisfied: anyio<5.0,>=3.0 in /usr/local/lib/python3.11/dist-packages (from gradio) (4.9.0)
+Requirement already satisfied: brotli>=1.1.0 in /usr/local/lib/python3.11/dist-packages (from gradio) (1.1.0)
+Requirement already satisfied: fastapi<1.0,>=0.115.2 in /usr/local/lib/python3.11/dist-packages (from gradio) (0.116.1)
+Requirement already satisfied: ffmpy in /usr/local/lib/python3.11/dist-packages (from gradio) (0.6.0)
+Requirement already satisfied: gradio-client==1.11.0 in /usr/local/lib/python3.11/dist-packages (from gradio) (1.11.0)
+Requirement already satisfied: groovy~=0.1 in /usr/local/lib/python3.11/dist-packages (from gradio) (0.1.2)
+Requirement already satisfied: httpx<1.0,>=0.24.1 in /usr/local/lib/python3.11/dist-packages (from gradio) (0.28.1)
+Requirement already satisfied: jinja2<4.0 in /usr/local/lib/python3.11/dist-packages (from gradio) (3.1.6)
+Requirement already satisfied: markupsafe<4.0,>=2.0 in /usr/local/lib/python3.11/dist-packages (from gradio) (3.0.2)
+Requirement already satisfied: numpy<3.0,>=1.0 in /usr/local/lib/python3.11/dist-packages (from gradio) (2.0.2)
+Requirement already satisfied: orjson~=3.0 in /usr/local/lib/python3.11/dist-packages (from gradio) (3.11.0)
+Requirement already satisfied: packaging in /usr/local/lib/python3.11/dist-packages (from gradio) (25.0)
+Requirement already satisfied: pandas<3.0,>=1.0 in /usr/local/lib/python3.11/dist-packages (from gradio) (2.2.2)
+Requirement already satisfied: pillow<12.0,>=8.0 in /usr/local/lib/python3.11/dist-packages (from gradio) (11.3.0)
+Requirement already satisfied: pydantic<2.12,>=2.0 in /usr/local/lib/python3.11/dist-packages (from gradio) (2.11.7)
+Requirement already satisfied: pydub in /usr/local/lib/python3.11/dist-packages (from gradio) (0.25.1)
+Requirement already satisfied: python-multipart>=0.0.18 in /usr/local/lib/python3.11/dist-packages (from gradio) (0.0.20)
+Requirement already satisfied: pyyaml<7.0,>=5.0 in /usr/local/lib/python3.11/dist-packages (from gradio) (6.0.2)
+Requirement already satisfied: ruff>=0.9.3 in /usr/local/lib/python3.11/dist-packages (from gradio) (0.12.4)
+Requirement already satisfied: safehttpx<0.2.0,>=0.1.6 in /usr/local/lib/python3.11/dist-packages (from gradio) (0.1.6)
+Requirement already satisfied: semantic-version~=2.0 in /usr/local/lib/python3.11/dist-packages (from gradio) (2.10.0)
+Requirement already satisfied: starlette<1.0,>=0.40.0 in /usr/local/lib/python3.11/dist-packages (from gradio) (0.47.2)
+Requirement already satisfied: tomlkit<0.14.0,>=0.12.0 in /usr/local/lib/python3.11/dist-packages (from gradio) (0.13.3)
+Requirement already satisfied: typer<1.0,>=0.12 in /usr/local/lib/python3.11/dist-packages (from gradio) (0.16.0)
+Requirement already satisfied: typing-extensions~=4.0 in /usr/local/lib/python3.11/dist-packages (from gradio) (4.14.1)
+Requirement already satisfied: uvicorn>=0.14.0 in /usr/local/lib/python3.11/dist-packages (from gradio) (0.35.0)
+Requirement already satisfied: fsspec in /usr/local/lib/python3.11/dist-packages (from gradio-client==1.11.0->gradio) (2025.7.0)
+Requirement already satisfied: websockets<16.0,>=10.0 in /usr/local/lib/python3.11/dist-packages (from gradio-client==1.11.0->gradio) (15.0.1)
+Requirement already satisfied: filelock in /usr/local/lib/python3.11/dist-packages (from huggingface_hub) (3.18.0)
+Requirement already satisfied: requests in /usr/local/lib/python3.11/dist-packages (from huggingface_hub) (2.32.3)
+Requirement already satisfied: tqdm>=4.42.1 in /usr/local/lib/python3.11/dist-packages (from huggingface_hub) (4.67.1)
+Requirement already satisfied: hf-xet<2.0.0,>=1.1.2 in /usr/local/lib/python3.11/dist-packages (from huggingface_hub) (1.1.5)
+Requirement already satisfied: idna>=2.8 in /usr/local/lib/python3.11/dist-packages (from anyio<5.0,>=3.0->gradio) (3.10)
+Requirement already satisfied: sniffio>=1.1 in /usr/local/lib/python3.11/dist-packages (from anyio<5.0,>=3.0->gradio) (1.3.1)
+Requirement already satisfied: certifi in /usr/local/lib/python3.11/dist-packages (from httpx<1.0,>=0.24.1->gradio) (2025.7.14)
+Requirement already satisfied: httpcore==1.* in /usr/local/lib/python3.11/dist-packages (from httpx<1.0,>=0.24.1->gradio) (1.0.9)
+Requirement already satisfied: h11>=0.16 in /usr/local/lib/python3.11/dist-packages (from httpcore==1.*->httpx<1.0,>=0.24.1->gradio) (0.16.0)
+Requirement already satisfied: python-dateutil>=2.8.2 in /usr/local/lib/python3.11/dist-packages (from pandas<3.0,>=1.0->gradio) (2.9.0.post0)
+Requirement already satisfied: pytz>=2020.1 in /usr/local/lib/python3.11/dist-packages (from pandas<3.0,>=1.0->gradio) (2025.2)
+Requirement already satisfied: tzdata>=2022.7 in /usr/local/lib/python3.11/dist-packages (from pandas<3.0,>=1.0->gradio) (2025.2)
+Requirement already satisfied: annotated-types>=0.6.0 in /usr/local/lib/python3.11/dist-packages (from pydantic<2.12,>=2.0->gradio) (0.7.0)
+Requirement already satisfied: pydantic-core==2.33.2 in /usr/local/lib/python3.11/dist-packages (from pydantic<2.12,>=2.0->gradio) (2.33.2)
+Requirement already satisfied: typing-inspection>=0.4.0 in /usr/local/lib/python3.11/dist-packages (from pydantic<2.12,>=2.0->gradio) (0.4.1)
+Requirement already satisfied: click>=8.0.0 in /usr/local/lib/python3.11/dist-packages (from typer<1.0,>=0.12->gradio) (8.2.1)
+Requirement already satisfied: shellingham>=1.3.0 in /usr/local/lib/python3.11/dist-packages (from typer<1.0,>=0.12->gradio) (1.5.4)
+Requirement already satisfied: rich>=10.11.0 in /usr/local/lib/python3.11/dist-packages (from typer<1.0,>=0.12->gradio) (13.9.4)
+Requirement already satisfied: charset-normalizer<4,>=2 in /usr/local/lib/python3.11/dist-packages (from requests->huggingface_hub) (3.4.2)
+Requirement already satisfied: urllib3<3,>=1.21.1 in /usr/local/lib/python3.11/dist-packages (from requests->huggingface_hub) (2.5.0)
+Requirement already satisfied: six>=1.5 in /usr/local/lib/python3.11/dist-packages (from python-dateutil>=2.8.2->pandas<3.0,>=1.0->gradio) (1.17.0)
+Requirement already satisfied: markdown-it-py>=2.2.0 in /usr/local/lib/python3.11/dist-packages (from rich>=10.11.0->typer<1.0,>=0.12->gradio) (3.0.0)
+Requirement already satisfied: pygments<3.0.0,>=2.13.0 in /usr/local/lib/python3.11/dist-packages (from rich>=10.11.0->typer<1.0,>=0.12->gradio) (2.19.2)
+Requirement already satisfied: mdurl~=0.1 in /usr/local/lib/python3.11/dist-packages (from markdown-it-py>=2.2.0->rich>=10.11.0->typer<1.0,>=0.12->gradio) (0.1.2)
+ 
+[56]
+3m
+!huggingface-cli login
+
+ 
+    _|    _|  _|    _|    _|_|_|    _|_|_|  _|_|_|  _|      _|    _|_|_|      _|_|_|_|    _|_|      _|_|_|  _|_|_|_|
+    _|    _|  _|    _|  _|        _|          _|    _|_|    _|  _|            _|        _|    _|  _|        _|
+    _|_|_|_|  _|    _|  _|  _|_|  _|  _|_|    _|    _|  _|  _|  _|  _|_|      _|_|_|    _|_|_|_|  _|        _|_|_|
+    _|    _|  _|    _|  _|    _|  _|    _|    _|    _|    _|_|  _|    _|      _|        _|    _|  _|        _|
+    _|    _|    _|_|      _|_|_|    _|_|_|  _|_|_|  _|      _|    _|_|_|      _|        _|    _|    _|_|_|  _|_|_|_|
+
+    To log in, `huggingface_hub` requires a token generated from https://huggingface.co/settings/tokens .
+Enter your token (input will not be visible): 
+Add token as git credential? (Y/n) y
+Traceback (most recent call last):
+  File "/usr/local/bin/huggingface-cli", line 10, in <module>
+    sys.exit(main())
+             ^^^^^^
+  File "/usr/local/lib/python3.11/dist-packages/huggingface_hub/commands/huggingface_cli.py", line 59, in main
+    service.run()
+  File "/usr/local/lib/python3.11/dist-packages/huggingface_hub/commands/user.py", line 111, in run
+    login(
+  File "/usr/local/lib/python3.11/dist-packages/huggingface_hub/utils/_deprecation.py", line 101, in inner_f
+    return f(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/dist-packages/huggingface_hub/utils/_deprecation.py", line 31, in inner_f
+    return f(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/dist-packages/huggingface_hub/_login.py", line 130, in login
+    interpreter_login(new_session=new_session)
+  File "/usr/local/lib/python3.11/dist-packages/huggingface_hub/utils/_deprecation.py", line 101, in inner_f
+    return f(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/dist-packages/huggingface_hub/utils/_deprecation.py", line 31, in inner_f
+    return f(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/dist-packages/huggingface_hub/_login.py", line 290, in interpreter_login
+    _login(token=token, add_to_git_credential=add_to_git_credential)
+  File "/usr/local/lib/python3.11/dist-packages/huggingface_hub/_login.py", line 404, in _login
+    token_info = whoami(token)
+                 ^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/dist-packages/huggingface_hub/utils/_validators.py", line 114, in _inner_fn
+    return fn(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/dist-packages/huggingface_hub/hf_api.py", line 1772, in whoami
+    headers=self._build_hf_headers(token=effective_token),
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/dist-packages/huggingface_hub/hf_api.py", line 9548, in _build_hf_headers
+    return build_hf_headers(
+           ^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/dist-packages/huggingface_hub/utils/_deprecation.py", line 101, in inner_f
+    return f(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/dist-packages/huggingface_hub/utils/_validators.py", line 114, in _inner_fn
+    return fn(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/dist-packages/huggingface_hub/utils/_headers.py", line 126, in build_hf_headers
+    token_to_send = get_token_to_send(token)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/dist-packages/huggingface_hub/utils/_headers.py", line 159, in get_token_to_send
+    raise LocalTokenNotFoundError(
+huggingface_hub.errors.LocalTokenNotFoundError: Token is required (`token=True`), but no token found. You need to provide a token or be logged in to Hugging Face with `huggingface-cli login` or `huggingface_hub.login`. See https://huggingface.co/settings/tokens.
+ 
+[58]
+0s
+!mkdir fraud-detection-app
+%cd fraud-detection-app
+
+ /content/fraud-detection-app
+ 
+[60]
+0s
+import joblib
+
+# Replace this with your actual trained model object
+joblib.dump(model, "model.pkl")
+
+ ['model.pkl']
+ 
+[61]
+1s
+import gradio as gr
+import pandas as pd
+import joblib
+
+model = joblib.load("model.pkl")  # Ensure this file exists in the same directory
+
+def onehot(df, column, prefix):
+    one_hot = pd.get_dummies(df[column], prefix=prefix)
+    df = df.drop(column, axis=1)
+    return pd.concat([df, one_hot], axis=1)
+
+def predict_transaction(trans_type, amount, old_balance_origin):
+    balance_update = {
+        "PAYMENT": old_balance_origin - amount,
+        "TRANSFER": old_balance_origin - amount,
+        "CASH_OUT": old_balance_origin - amount,
+        "CASH_IN":  old_balance_origin + amount,
+        "DEBIT":    old_balance_origin - amount,
+    }
+    new_balance_origin = balance_update.get(trans_type, 0.0)
+
+    row = {
+        'type': trans_type,
+        'amount': amount,
+        'oldbalanceOrg': old_balance_origin,
+        'newbalanceOrig': new_balance_origin,
+        'oldbalanceDest': 0.0,
+        'newbalanceDest': 0.0,
+        'tp_PAYMENT': 0,
+        'tp_TRANSFER': 0,
+        'tp_CASH_OUT': 0,
+        'tp_CASH_IN': 0,
+        'tp_DEBIT': 0
+    }
+
+    df = pd.DataFrame(row, index=[0])
+    drop_col = f"tp_{trans_type}"
+    if drop_col in df.columns:
+        df = df.drop(columns=drop_col)
+    df = onehot(df, 'type', 'tp')
+    preds = model.predict_proba(df)[0].tolist()
+    return {"Not Fraud": preds[0], "Fraud": preds[1]}, new_balance_origin
+
+interface = gr.Interface(
+    fn=predict_transaction,
+    inputs=[
+        gr.Dropdown(['PAYMENT','TRANSFER','CASH_OUT','CASH_IN','DEBIT'], label="Transaction Type"),
+        gr.Number(label="Transaction Amount"),
+        gr.Number(label="Originator's Old Balance", value=100000)
+    ],
+    outputs=[
+        gr.Label(label="Fraud Probability"),
+        gr.Textbox(label="Predicted New Balance")
+    ],
+    title="📊 Mobile Fraud Detection App",
+    description="Upload transaction details and detect fraud in real time."
+)
+
+interface.launch()
+
+ 
+Add Required Files
+
+app.py — your main code (as above) requirements.txt — dependencies: gradio pandas scikit-learn joblib If you're using XGBoost or TensorFlow, add them as well.
+
+ 
+[69]
+!gradio deploy
+
+ Need 'write' access token to create a Spaces repo.
+
+    _|    _|  _|    _|    _|_|_|    _|_|_|  _|_|_|  _|      _|    _|_|_|      _|_|_|_|    _|_|      _|_|_|  _|_|_|_|
+    _|    _|  _|    _|  _|        _|          _|    _|_|    _|  _|            _|        _|    _|  _|        _|
+    _|_|_|_|  _|    _|  _|  _|_|  _|  _|_|    _|    _|  _|  _|  _|  _|_|      _|_|_|    _|_|_|_|  _|        _|_|_|
+    _|    _|  _|    _|  _|    _|  _|    _|    _|    _|    _|_|  _|    _|      _|        _|    _|  _|        _|
+    _|    _|    _|_|      _|_|_|    _|_|_|  _|_|_|  _|      _|    _|_|_|      _|        _|    _|    _|_|_|  _|_|_|_|
+
+Enter your token (input will not be visible): 
+ 
+[67]
+0s
+from huggingface_hub import notebook_loginnotebook_login()
+
+ 
+Colab paid products - Cancel contracts here
